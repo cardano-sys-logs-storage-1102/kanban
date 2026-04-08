@@ -126,7 +126,7 @@ input, textarea, select { font-family: inherit; }
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 220px;
+  min-width: 250px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -159,18 +159,40 @@ input, textarea, select { font-family: inherit; }
   border-radius: 50%;
   flex-shrink: 0;
 }
-.proj-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.proj-item-del {
-  width: 20px; height: 20px;
+.proj-item-name { 
+  flex: 1; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  white-space: nowrap; 
+  outline: none; 
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin-left: -4px;
+}
+.proj-item-name[contenteditable="true"] { 
+  background: var(--surface); 
+  text-overflow: clip; 
+  white-space: nowrap;
+  border: 1px solid var(--accent);
+}
+.proj-item-actions { 
+  display: flex; 
+  gap: 2px; 
+  opacity: 0; 
+  transition: opacity var(--transition); 
+}
+.proj-item:hover .proj-item-actions { opacity: 1; }
+.proj-action-btn {
+  width: 22px; height: 22px;
   border-radius: 4px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text3);
-  opacity: 0;
   transition: all var(--transition);
 }
-.proj-item:hover .proj-item-del { opacity: 1; }
-.proj-item-del:hover { background: var(--bg3); color: var(--red); }
+.proj-action-btn:hover { background: var(--bg3); color: var(--text); }
+.proj-action-btn.del:hover { color: var(--red); background: rgba(232,53,53,0.1); }
+
 .proj-sep { height: 1px; background: var(--border); margin: 4px 0; }
 .proj-new-btn {
   display: flex;
@@ -336,12 +358,12 @@ input, textarea, select { font-family: inherit; }
   border-radius: 12px;
   background: var(--bg2);
   border: 1px solid var(--border2);
-  transition: box-shadow var(--transition), background-color var(--transition), border-color var(--transition);
+  transition: box-shadow var(--transition);
   overflow: hidden;
 }
 .column.drag-over {
   box-shadow: 0 0 0 2px var(--accent), var(--shadow);
-  background: var(--accent-bg) !important;
+  background: var(--accent-bg);
 }
 .col-color-strip {
   height: 4px;
@@ -705,9 +727,9 @@ input, textarea, select { font-family: inherit; }
 }
 #modal-desc:focus { border-color: var(--accent); }
 
-/* NOTE / MARKDOWN PANEL FIX: Alterado de 'display: none' para 'display: flex' */
-#note-panel { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
-
+/* NOTE / MARKDOWN PANEL */
+#note-panel { padding: 16px 18px; display: none; flex-direction: column; gap: 12px; }
+#note-panel.active { display: flex; }
 .note-toolbar {
   display: flex; align-items: center; gap: 6px;
   flex-wrap: wrap;
@@ -1199,7 +1221,7 @@ function defaultProject(name) {
   return {
     id: uid(), name: name || 'Projeto',
     columns: [
-      { id: uid(), name: 'A Fazer',     color: '#f59e0b', cards: [] },
+      { id: uid(), name: 'A Fazer',      color: '#f59e0b', cards: [] },
       { id: uid(), name: 'Em Progresso', color: '#3b82f6', cards: [] },
       { id: uid(), name: 'Concluído',    color: '#22c55e', cards: [] },
     ]
@@ -1282,7 +1304,7 @@ document.getElementById('theme-btn').addEventListener('click', () => {
 });
 
 /* ============================================================
-   PROJECT DROPDOWN
+   PROJECT DROPDOWN (Com função de Renomear)
    ============================================================ */
 function renderProjectDropdown() {
   const list = document.getElementById('project-list');
@@ -1291,12 +1313,50 @@ function renderProjectDropdown() {
     const item = document.createElement('div');
     item.className = 'proj-item' + (p.id === state.activeProjectId ? ' active' : '');
     const firstColColor = p.columns[0]?.color || '#888';
+    
+    // Adicionamos botões de edição e exclusão
     item.innerHTML = `
       <div class="proj-item-dot" style="background:${firstColColor}"></div>
       <span class="proj-item-name">${p.name}</span>
-      <button class="proj-item-del" title="Excluir projeto">✕</button>
+      <div class="proj-item-actions">
+        <div class="proj-action-btn edit" title="Renomear projeto">✏️</div>
+        <div class="proj-action-btn del" title="Excluir projeto">✕</div>
+      </div>
     `;
-    item.querySelector('.proj-item-del').addEventListener('click', e => {
+
+    const nameSpan = item.querySelector('.proj-item-name');
+    
+    // Evita selecionar o projeto acidentalmente enquanto digita o novo nome
+    nameSpan.addEventListener('click', e => {
+      if (nameSpan.isContentEditable) e.stopPropagation();
+    });
+
+    // Lógica para Renomear
+    item.querySelector('.edit').addEventListener('click', e => {
+      e.stopPropagation();
+      nameSpan.contentEditable = 'true';
+      nameSpan.focus();
+      document.execCommand('selectAll', false, null);
+
+      const saveName = () => {
+        nameSpan.contentEditable = 'false';
+        p.name = nameSpan.textContent.trim() || p.name;
+        saveState();
+        renderProjectDropdown();
+        if (p.id === state.activeProjectId) renderProgress(); // Atualiza a barra
+      };
+
+      nameSpan.addEventListener('blur', saveName, { once: true });
+      nameSpan.addEventListener('keydown', e2 => {
+        if (e2.key === 'Enter') {
+          e2.preventDefault();
+          nameSpan.blur();
+        }
+      });
+    });
+
+    // Lógica para Excluir
+    item.querySelector('.del').addEventListener('click', e => {
       e.stopPropagation();
       if (state.projects.length === 1) { toast('Não é possível excluir o único projeto.'); return; }
       confirm2(`Excluir "${p.name}"?`, 'Todos os dados deste projeto serão perdidos.', () => {
@@ -1305,13 +1365,17 @@ function renderProjectDropdown() {
         saveState(); renderProjectDropdown(); renderBoard();
       });
     });
+
+    // Lógica para Selecionar o Projeto
     item.addEventListener('click', () => {
       state.activeProjectId = p.id;
       closeProjectDropdown();
       saveState(); renderProjectDropdown(); renderBoard();
     });
+    
     list.appendChild(item);
   });
+  
   // update trigger label
   const ap = activeProject();
   document.getElementById('project-trigger-name').textContent = ap ? ap.name : '—';
@@ -1389,12 +1453,6 @@ function buildColumn(col) {
   const el = document.createElement('div');
   el.className = 'column';
   el.dataset.colId = col.id;
-
-  // Modificação de cor mais aparente na "Caixa" (Fundo e borda)
-  if (col.color) {
-    el.style.backgroundColor = `color-mix(in srgb, ${col.color} 6%, var(--bg2))`;
-    el.style.borderColor = `color-mix(in srgb, ${col.color} 25%, var(--border2))`;
-  }
 
   // color strip at top
   const strip = document.createElement('div');
@@ -1823,7 +1881,7 @@ function renderMarkdown(text) {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/^---$/gm, '<hr>')
-    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^> (.+)$/gm, 'blockquote>$1</blockquote>')
     .replace(/^- \[x\] (.+)$/gm, '<li style="list-style:none">✅ $1</li>')
     .replace(/^- \[ \] (.+)$/gm, '<li style="list-style:none">⬜ $1</li>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
@@ -1869,8 +1927,7 @@ function openColColorPicker(colId, x, y) {
     const sw = document.createElement('div');
     sw.className = 'c-swatch' + (c === col?.color ? ' sel' : '');
     sw.style.background = c;
-    sw.addEventListener('click', (e) => {
-      e.stopPropagation(); // Impede fechamento imediato do evento click
+    sw.addEventListener('click', () => {
       const targetCol = getCol(colColorTargetId);
       if (targetCol) {
         targetCol.color = c;
@@ -2058,8 +2115,7 @@ function closeCtxMenu() {
   ctxColId = null;
 }
 
-document.getElementById('ctx-rename').addEventListener('click', (e) => {
-  e.stopPropagation();
+document.getElementById('ctx-rename').addEventListener('click', () => {
   const id = ctxColId; closeCtxMenu();
   let found = null;
   document.querySelectorAll('.column').forEach(col => {
@@ -2068,8 +2124,7 @@ document.getElementById('ctx-rename').addEventListener('click', (e) => {
   if (found) { found.focus(); document.execCommand('selectAll', false, null); }
 });
 
-document.getElementById('ctx-color').addEventListener('click', (e) => {
-  e.stopPropagation(); // FIX: Impede fechamento imediato do seletor de cor pelo click global
+document.getElementById('ctx-color').addEventListener('click', () => {
   const id = ctxColId; closeCtxMenu();
   const col = document.querySelector(`.column[data-col-id="${id}"]`);
   if (col) {
@@ -2079,8 +2134,7 @@ document.getElementById('ctx-color').addEventListener('click', (e) => {
   }
 });
 
-document.getElementById('ctx-delete').addEventListener('click', (e) => {
-  e.stopPropagation();
+document.getElementById('ctx-delete').addEventListener('click', () => {
   const id = ctxColId; closeCtxMenu();
   const p = activeProject();
   if (p.columns.length <= 1) { toast('Não é possível excluir a única coluna.'); return; }
