@@ -728,8 +728,8 @@ input, textarea, select { font-family: inherit; }
 #modal-desc:focus { border-color: var(--accent); }
 
 /* NOTE / MARKDOWN PANEL */
-#note-panel { padding: 16px 18px; display: none; flex-direction: column; gap: 12px; }
-#note-panel.active { display: flex; }
+#note-panel { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; } /* Trocamos de 'none' para 'flex' */
+/*#note-panel.active { display: flex; }*/
 .note-toolbar {
   display: flex; align-items: center; gap: 6px;
   flex-wrap: wrap;
