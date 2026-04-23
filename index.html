@@ -1029,6 +1029,81 @@ input, textarea, select { font-family: inherit; }
 </style>
 </head>
 <body>
+<style id="login-style">
+#login-overlay {
+  position: fixed; inset: 0; z-index: 99999;
+  background: #141312;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'DM Sans', sans-serif;
+}
+#login-overlay.hidden { display: none; }
+.login-box {
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 14px;
+  padding: 40px 36px; background: rgba(30,28,26,0.98);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  min-width: 300px;
+}
+.login-tag  { font-size: 0.68rem; letter-spacing: 0.2em; color: var(--text3); text-transform: uppercase; }
+.login-title { font-family: 'Syne', sans-serif; font-size: 1.2rem; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
+.login-title span { color: var(--accent); }
+.login-input {
+  width: 100%; background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 14px; font-family: 'DM Sans', sans-serif;
+  font-size: 0.9rem; outline: none;
+  text-align: center; transition: border-color 0.2s;
+}
+.login-input:focus { border-color: var(--accent); }
+.login-input.error { border-color: var(--red); animation: shake 0.3s ease; }
+@keyframes shake {
+  0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)}
+}
+.login-btn {
+  width: 100%; padding: 10px; background: var(--accent); color: #fff;
+  border: none; font-family: 'DM Sans', sans-serif; font-size: 0.88rem;
+  font-weight: 600; border-radius: 8px; cursor: pointer; transition: all 0.2s;
+}
+.login-btn:hover { background: var(--accent2); }
+.login-error { font-size: 0.75rem; color: var(--red); min-height: 16px; }
+</style>
+<div id="login-overlay">
+  <div class="login-box">
+    <span class="login-tag">// acesso restrito</span>
+    <span class="login-title">Kanban<span>·</span>Pro</span>
+    <input class="login-input" type="password" id="loginInput" placeholder="senha" autocomplete="current-password" onkeydown="if(event.key==='Enter') checkLogin()">
+    <button class="login-btn" onclick="checkLogin()">Entrar</button>
+    <span class="login-error" id="loginError"></span>
+  </div>
+</div>
+<script id="login-script">
+(function() {
+  const PASS = '81231980leo';
+  const SESSION_KEY = 'hub_auth';
+  function checkLogin() {
+    const input = document.getElementById('loginInput');
+    if (input.value === PASS) {
+      sessionStorage.setItem(SESSION_KEY, '1');
+      document.getElementById('login-overlay').classList.add('hidden');
+      input.value = '';
+    } else {
+      input.classList.add('error');
+      document.getElementById('loginError').textContent = 'senha incorreta';
+      setTimeout(() => { input.classList.remove('error'); input.value = ''; input.focus(); }, 600);
+    }
+  }
+  window.checkLogin = checkLogin;
+  if (sessionStorage.getItem(SESSION_KEY) !== '1') {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('loginInput').focus();
+    });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('login-overlay').classList.add('hidden');
+    });
+  }
+})();
+</script>
 
 <header id="topbar">
   <div id="logo">Kanban<span>·</span>Pro</div>
@@ -1249,19 +1324,27 @@ let notePreviewMode    = false;
    PERSISTENCE — single localStorage key, all projects
    ============================================================ */
 function saveState() {
-  localStorage.setItem('kanban_pro_v2', JSON.stringify(state));
-  const now = new Date();
-  const hm = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  const si = document.getElementById('save-indicator');
-  si.textContent = `✓ Salvo ${hm}`;
-  si.classList.add('saved');
-  clearTimeout(saveState._t);
-  saveState._t = setTimeout(() => si.classList.remove('saved'), 3000);
+  if (!window._db || !window._userId || !window._firestoreSetDoc) return;
+  const docRef = window._firestoreDoc(window._db, 'users', window._userId, 'data', 'kanban');
+  window._firestoreSetDoc(docRef, state)
+    .then(() => {
+      const now = new Date();
+      const hm = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const si = document.getElementById('save-indicator');
+      si.textContent = `✓ Salvo ${hm}`;
+      si.classList.add('saved');
+      clearTimeout(saveState._t);
+      saveState._t = setTimeout(() => si.classList.remove('saved'), 3000);
+    })
+    .catch(err => {
+      console.error('[Firestore] saveState:', err);
+      const si = document.getElementById('save-indicator');
+      si.textContent = '✗ erro ao salvar';
+    });
 }
 
 function loadState() {
-  const raw = localStorage.getItem('kanban_pro_v2');
-  if (raw) { try { state = JSON.parse(raw); } catch(e) {} }
+  // Dados carregados pelo initFirebase() — apenas garante defaults
   if (!state.projects || state.projects.length === 0)
     state.projects = [defaultProject('Meu Projeto')];
   if (!state.activeProjectId || !state.projects.find(p => p.id === state.activeProjectId))
@@ -2359,5 +2442,73 @@ loadState();
 renderProjectDropdown();
 renderBoard();
 </script>
+
+<!-- ══════════════════════════════════════════════════════
+     FIREBASE · FIRESTORE INTEGRATION
+     ══════════════════════════════════════════════════════ -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getFirestore, doc, getDoc, setDoc }
+    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAw9H0qykfeoQXbZsFSToGYfggfNloQnaE",
+    authDomain: "hub-data-fe2fc.firebaseapp.com",
+    projectId: "hub-data-fe2fc",
+    storageBucket: "hub-data-fe2fc.firebasestorage.app",
+    messagingSenderId: "61570232514",
+    appId: "1:61570232514:web:65d5df5cc901d224340b5b"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getFirestore(app);
+  const USER_ID = 'leo';
+
+  window._db     = db;
+  window._userId = USER_ID;
+  window._firestoreSetDoc = setDoc;
+  window._firestoreDoc    = doc;
+
+  async function initFirebase() {
+    const si = document.getElementById('save-indicator');
+    if (si) si.textContent = 'conectando...';
+
+    try {
+      const dataRef  = doc(db, 'users', USER_ID, 'data', 'kanban');
+      const dataSnap = await getDoc(dataRef);
+
+      if (dataSnap.exists()) {
+        const remote = dataSnap.data();
+        if (!remote.projects || remote.projects.length === 0)
+          remote.projects = state.projects;
+        if (!remote.activeProjectId)
+          remote.activeProjectId = remote.projects[0]?.id;
+        state = remote;
+      } else {
+        await setDoc(dataRef, state);
+      }
+
+      renderProjectDropdown();
+      renderBoard();
+
+      if (si) {
+        const hm = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        si.textContent = `✓ firestore ${hm}`;
+        si.classList.add('saved');
+      }
+
+    } catch (err) {
+      console.error('[Firebase]', err);
+      if (si) si.textContent = '✗ firestore offline';
+    }
+  }
+
+  if (document.readyState === 'complete') {
+    setTimeout(initFirebase, 300);
+  } else {
+    window.addEventListener('load', () => setTimeout(initFirebase, 300));
+  }
+</script>
+
 </body>
 </html>
